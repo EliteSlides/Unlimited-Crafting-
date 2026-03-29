@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Unlimited Crafting | Aitesam Edition</title>
+    <style>
+        :root { 
+            --bg: #050a14; 
+            --glass: rgba(255, 255, 255, 0.12); 
+            --accent: #00ffcc; 
+            --trash: rgba(255, 68, 68, 0.3);
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        
+        body { 
+            margin: 0; background: var(--bg); color: white; 
+            font-family: 'Segoe UI', Roboto, sans-serif; overflow: hidden; 
+            touch-action: none; position: fixed; width: 100%; height: 100%;
+        }
+        
+        #game-wrapper { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+        
+        /* Main Play Area */
+        #canvas { 
+            flex-grow: 1; position: relative; 
+            background: radial-gradient(circle at center, #112244 0%, #050a14 100%); 
+            overflow: hidden; 
+        }
+
+        /* Trash Can Overlay */
+        #trash-zone {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 60px; height: 60px; background: var(--trash);
+            border: 2px dashed #ff4444; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px; z-index: 10; pointer-events: none;
+            transition: transform 0.2s;
+        }
+
+        /* Bottom Discovery Bar */
+        #footer { 
+            height: 110px; background: rgba(0,0,0,0.9); 
+            border-top: 2px solid var(--glass); 
+            display: flex; flex-direction: column; z-index: 9999; 
+        }
+        #footer h3 { font-size: 11px; padding: 6px 15px; color: var(--accent); margin: 0; text-transform: uppercase; letter-spacing: 1px; }
+        
+        #inventory { 
+            display: flex; overflow-x: auto; overflow-y: hidden; padding: 10px; gap: 10px; 
+            white-space: nowrap; scroll-behavior: smooth; touch-action: pan-x;
+        }
+        #inventory::-webkit-scrollbar { height: 4px; }
+        #inventory::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 10px; }
+
+        /* Item Styling */
+        .item { 
+            padding: 6px 14px; background: var(--glass); border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px; display: flex; align-items: center; gap: 6px;
+            backdrop-filter: blur(10px); font-size: 15px; user-select: none; position: absolute;
+            white-space: nowrap; pointer-events: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+            transition: box-shadow 0.3s;
+        }
+
+        .inventory-item { position: relative; cursor: pointer; flex-shrink: 0; height: 38px; }
+
+        /* Spin & Glow Animation for New Items */
+        @keyframes spawnSpin {
+            0% { transform: scale(0) rotate(-180deg); box-shadow: 0 0 0px var(--accent); }
+            50% { box-shadow: 0 0 20px var(--accent); }
+            100% { transform: scale(1) rotate(0deg); box-shadow: 0 4px 12px rgba(0,0,0,0.6); }
+        }
+        .new-item-anim { animation: spawnSpin 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <div id="canvas">
+        <div id="trash-zone">🗑️</div>
+    </div>
+    
+    <div id="footer">
+        <h3>Discovered: <span id="count">4</span></h3>
+        <div id="inventory"></div>
+    </div>
+</div>
+
+<script>
+    // 100+ RECIPE DATABASE
+    const recipes = {
+        "Fire+Water": { n: "Steam", e: "💨" },
+        "Earth+Water": { n: "Plant", e: "🌱" },
+        "Fire+Earth": { n: "Lava", e: "🌋" },
+        "Air+Fire": { n: "Energy", e: "⚡" },
+        "Lava+Water": { n: "Stone", e: "🪨" },
+        "Air+Earth": { n: "Dust", e: "🌪️" },
+        "Water+Water": { n: "Lake", e: "🌊" },
+        "Earth+Earth": { n: "Mountain", e: "⛰️" },
+        "Plant+Water": { n: "Algae", e: "🌿" },
+        "Plant+Earth": { n: "Tree", e: "🌳" },
+        "Tree+Tree": { n: "Forest", e: "🌲" },
+        "Energy+Earth": { n: "Life", e: "🧬" },
+        "Life+Water": { n: "Fish", e: "🐟" },
+        "Life+Earth": { n: "Human", e: "🧍" },
+        "Life+Air": { n: "Bird", e: "🐦" },
+        "Plant+Sun": { n: "Flower", e: "🌻" },
+        "Fire+Life": { n: "Phoenix", e: "🐦‍🔥" },
+        "Metal+Energy": { n: "Robot", e: "🤖" },
+        "Metal+Fire": { n: "Steel", e: "🔩" },
+        "Human+Energy": { n: "Wizard", e: "🧙" },
+        "Human+Metal": { n: "Tool", e: "🔨" },
+        "Tool+Tree": { n: "Wood", e: "🪵" },
+        "Wood+Fire": { n: "Coal", e: "🕳️" },
+        "Coal+Fire": { n: "Diamond", e: "💎" },
+        "Human+Human": { n: "Family", e: "👨‍👩‍👧" },
+        "Steel+Energy": { n: "Electricity", e: "🔌" },
+        "Robot+Electricity": { n: "AI", e: "🧠" },
+        "Mountain+Mountain": { n: "Range", e: "🏔️" },
+        "Stone+Stone": { n: "Wall", e: "🧱" },
+        "Air+Energy": { n: "Sun", e: "☀️" },
+        "Sun+Earth": { n: "Day", e: "🌅" },
+        "Sun+Moon": { n: "Eclipse", e: "🌑" },
+        "Stone+Air": { n: "Moon", e: "🌙" },
+        "Sun+Sun": { n: "Star", e: "⭐" },
+        "Star+Star": { n: "Galaxy", e: "🌌" },
+        "Galaxy+Galaxy": { n: "Universe", e: "🎆" },
+        "Metal+Star": { n: "Rocket", e: "🚀" },
+        "Rocket+Moon": { n: "Astronaut", e: "👨‍🚀" },
+        "Air+Water": { n: "Cloud", e: "☁️" },
+        "Cloud+Energy": { n: "Lightning", e: "🌩️" },
+        "Cloud+Water": { n: "Rain", e: "🌧️" },
+        "Rain+Sun": { n: "Rainbow", e: "🌈" },
+        "Fire+Dust": { n: "Gunpowder", e: "🧨" },
+        "Gunpowder+Fire": { n: "Explosion", e: "💥" },
+        "Wizard+Energy": { n: "Magic", e: "✨" },
+        "Magic+Animal": { n: "Dragon", e: "🐉" },
+        "Life+Stone": { n: "Egg", e: "🥚" },
+        "Egg+Air": { n: "Bird", e: "🐦" },
+        "Bird+Lake": { n: "Duck", e: "🦆" },
+        "Tree+Tool": { n: "Paper", e: "📄" },
+        "Paper+Tool": { n: "Book", e: "📖" },
+        "Book+Wizard": { n: "Spellbook", e: "📜" },
+        "Earth+Life": { n: "Animal", e: "🐾" },
+        "Animal+Water": { n: "Frog", e: "🐸" },
+        "Animal+Fire": { n: "Dragon", e: "🐲" },
+        "Tool+Metal": { n: "Armor", e: "🛡️" },
+        "Armor+Human": { n: "Knight", e: "⚔️" },
+        "Knight+Dragon": { n: "Hero", e: "🏆" },
+        "Human+Rain": { n: "Sick", e: "🤒" },
+        "Life+Lava": { n: "Monster", e: "👹" },
+        "Ocean+Earth": { n: "Island", e: "🏝️" },
+        "Lake+Lake": { n: "Ocean", e: "🌊" }
+    };
+
+    let discovered = [
+        { n: "Water", e: "💧" }, { n: "Fire", e: "🔥" }, 
+        { n: "Earth", e: "🌍" }, { n: "Air", e: "💨" }
+    ];
+
+    const canvas = document.getElementById('canvas');
+    const inv = document.getElementById('inventory');
+    const trash = document.getElementById('trash-zone');
+
+    function updateInventory() {
+        inv.innerHTML = "";
+        discovered.forEach(item => {
+            const div = document.createElement('div');
+            div.className = 'item inventory-item';
+            div.innerHTML = `<span>${item.e}</span> ${item.n}`;
+            div.addEventListener('pointerdown', (e) => startDragFromBar(e, item));
+            inv.appendChild(div);
+        });
+        document.getElementById('count').innerText = discovered.length;
+    }
+
+    function startDragFromBar(e, item) {
+        const clone = document.createElement('div');
+        clone.className = 'item';
+        clone.innerHTML = `<span>${item.e}</span> ${item.n}`;
+        clone.dataset.n = item.n;
+        
+        // Spawn at finger
+        clone.style.left = (e.clientX - 40) + 'px';
+        clone.style.top = (e.clientY - 20) + 'px';
+        clone.style.zIndex = 2000;
+        canvas.appendChild(clone);
+        
+        clone.setPointerCapture(e.pointerId);
+
+        const onMove = (me) => {
+            clone.style.left = (me.clientX - 40) + 'px';
+            clone.style.top = (me.clientY - 20) + 'px';
+            
+            // Visual feedback for Trash
+            if (isOverTrash(me.clientX, me.clientY)) {
+                trash.style.transform = "scale(1.2)";
+            } else {
+                trash.style.transform = "scale(1)";
+            }
+        };
+
+        const onUp = (ue) => {
+            clone.releasePointerCapture(ue.pointerId);
+            clone.removeEventListener('pointermove', onMove);
+            clone.removeEventListener('pointerup', onUp);
+            trash.style.transform = "scale(1)";
+
+            if (ue.clientY > window.innerHeight - 110 || isOverTrash(ue.clientX, ue.clientY)) {
+                clone.remove();
+            } else {
+                initCanvasItem(clone);
+                checkMerge(clone);
+            }
+        };
+
+        clone.addEventListener('pointermove', onMove);
+        clone.addEventListener('pointerup', onUp);
+    }
+
+    function isOverTrash(x, y) {
+        const tRect = trash.getBoundingClientRect();
+        return (x > tRect.left && x < tRect.right && y > tRect.top && y < tRect.bottom);
+    }
+
+    function initCanvasItem(el) {
+        el.onpointerdown = (e) => {
+            el.setPointerCapture(e.pointerId);
+            let ox = e.clientX - el.offsetLeft;
+            let oy = e.clientY - el.offsetTop;
+            
+            const move = (me) => {
+                el.style.left = (me.clientX - ox) + 'px';
+                el.style.top = (me.clientY - oy) + 'px';
+                if (isOverTrash(me.clientX, me.clientY)) trash.style.transform = "scale(1.2)";
+                else trash.style.transform = "scale(1)";
+            };
+            const up = (ue) => {
+                el.releasePointerCapture(ue.pointerId);
+                el.removeEventListener('pointermove', move);
+                el.removeEventListener('pointerup', up);
+                trash.style.transform = "scale(1)";
+
+                if (isOverTrash(ue.clientX, ue.clientY)) {
+                    el.remove();
+                } else {
+                    checkMerge(el);
+                }
+            };
+            el.addEventListener('pointermove', move);
+            el.addEventListener('pointerup', up);
+        };
+    }
+
+    function checkMerge(el) {
+        const others = document.querySelectorAll('#canvas .item');
+        others.forEach(other => {
+            if (other === el) return;
+            const r1 = el.getBoundingClientRect();
+            const r2 = other.getBoundingClientRect();
+
+            if (!(r1.right < r2.left || r1.left > r2.right || r1.bottom < r2.top || r1.top > r2.bottom)) {
+                const combo1 = el.dataset.n + "+" + other.dataset.n;
+                const combo2 = other.dataset.n + "+" + el.dataset.n;
+                const res = recipes[combo1] || recipes[combo2];
+
+                if (res) {
+                    const mx = (el.offsetLeft + other.offsetLeft) / 2;
+                    const my = (el.offsetTop + other.offsetTop) / 2;
+                    el.remove();
+                    other.remove();
+                    
+                    if (!discovered.find(i => i.n === res.n)) {
+                        discovered.push({ n: res.n, e: res.e });
+                        updateInventory();
+                    }
+                    spawnOnCanvas(res, mx, my, true);
+                }
+            }
+        });
+    }
+
+    function spawnOnCanvas(item, x, y, isNew = false) {
+        const div = document.createElement('div');
+        div.className = 'item' + (isNew ? ' new-item-anim' : '');
+        div.style.left = x + 'px';
+        div.style.top = y + 'px';
+        div.innerHTML = `<span>${item.e}</span> ${item.n}`;
+        div.dataset.n = item.n;
+        initCanvasItem(div);
+        canvas.appendChild(div);
+    }
+
+    updateInventory();
+</script>
+</body>
+</html>
